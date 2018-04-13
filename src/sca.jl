@@ -17,6 +17,7 @@ include("mia.jl")
 include("attackaes-core.jl")
 include("attackdes-core.jl")
 include("attacksha-core.jl")
+include("attackaes-ilya.jl")
 
 include("incremental-correlation.jl")
 include("sca-defaultparams.jl")
