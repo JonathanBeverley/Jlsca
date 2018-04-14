@@ -227,6 +227,7 @@ type DpaAttack
   outputkka::Nullable{AbstractString}
   targetOffsets::Nullable{Vector{Int}}
   scoresCallBack::Nullable{Function}
+  ranksCallBack::Nullable{Function}
   evolutionCb::Nullable{Function}
   leakageCombinator::Combination
   maximization::Nullable{Maximization}
@@ -243,7 +244,7 @@ type DpaAttack
   rankData
 
   function DpaAttack(attack::Attack, analysis::Analysis)
-    new(attack,analysis,1,Nullable(),Nullable(),Nullable(),Nullable(),Nullable(),Nullable(), Nullable(), Nullable(), Sum(), Nullable(),Nullable(), Nullable(),Nullable(),Nullable())
+    new(attack,analysis,1,Nullable(),Nullable(),Nullable(),Nullable(),Nullable(),Nullable(), Nullable(), Nullable(), Nullable(), Sum(), Nullable(),Nullable(), Nullable(),Nullable(),Nullable())
   end
 end
 
@@ -811,6 +812,9 @@ function sca(trs::Trace, params::DpaAttack, firstTrace::Int=1, numberOfTraces::I
       elseif status == INTERMEDIATERANKS
         (rankData, keyOffsets) = statusData
         printScores(params, phase, rankData, keyOffsets)
+        if !isnull(params.ranksCallBack)
+          get(params.ranksCallBack)(rankData, keyOffsets)
+        end
       elseif status == PHASERESULT
         phaseOutput = vcat(phaseOutput, statusData)
       elseif status == INTERMEDIATESCORES

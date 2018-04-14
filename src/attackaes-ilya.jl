@@ -7,6 +7,7 @@ using ..Aes
 using ..Trs
 
 export AesIlyaAttack
+export ilyaRankCallBack
 
 type AesIlyaAttack <: AesAttack
     mode::AesMode
@@ -16,6 +17,20 @@ type AesIlyaAttack <: AesAttack
     function AesIlyaAttack()
         return new(CIPHER, KL128, FORWARD)
     end
+
+end
+
+y = 5
+
+function ilyaRankCallBack(rankData::RankData, keyOffsets::Vector{Int64})
+	global y
+	y += 1
+	@printf("CALL BACK CLASS METHOD: %d\n", y)
+	print(rankData)
+	print("\n")
+	print(keyOffsets)
+	print("\n")
+	@printf("CALL BACK CLASS METHOD: %d\n", y)
 end
 
 function numberOfPhases(params::AesIlyaAttack)
