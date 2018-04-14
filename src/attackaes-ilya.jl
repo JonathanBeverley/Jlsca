@@ -6,8 +6,7 @@
 using ..Aes
 using ..Trs
 
-export AesIlyaAttack
-export ilyaRankCallBack
+export AesIlyaAttack, ilyaRankCallBack, flipHW
 
 type AesIlyaAttack <: AesAttack
     mode::AesMode
@@ -17,20 +16,24 @@ type AesIlyaAttack <: AesAttack
     function AesIlyaAttack()
         return new(CIPHER, KL128, FORWARD)
     end
-
 end
 
-y = 5
+previousKeyByte = -1
 
 function ilyaRankCallBack(rankData::RankData, keyOffsets::Vector{Int64})
-	global y
-	y += 1
-	@printf("CALL BACK CLASS METHOD: %d\n", y)
-	print(rankData)
-	print("\n")
-	print(keyOffsets)
-	print("\n")
-	@printf("CALL BACK CLASS METHOD: %d\n", y)
+    global previousKeyByte
+    phase = length(rankData.combinedScores)
+    target = length(rankData.combinedScores[phase])
+    orderedArrayOfFloats = rankData.combinedScores[phase][target]
+    previousKeyByte = indmax(orderedArrayOfFloats)-1
+    global printIt
+    printIt = 4
+end
+
+type flipHW <: Leakage
+end
+function leak(this::flipHW, intermediate::Union{UInt8,UInt16,UInt32,UInt128})
+    typeof(intermediate).size*8 - hw(intermediate)
 end
 
 function numberOfPhases(params::AesIlyaAttack)
@@ -38,46 +41,36 @@ function numberOfPhases(params::AesIlyaAttack)
 end
 
 # Need a new target
-type RoundIn <: Target{UInt8,UInt8,UInt8}
-    phaseInput::UInt8
+printIt = 4
+type TwoRoundTarget <: Target{UInt8,UInt8,UInt8} end
+function target(a::TwoRoundTarget, data::UInt8, guess::UInt8)
+    global previousKeyByte
+    global printIt
+    if (printIt>0)
+        printIt -= 1
+        @printf("data: %x, key: %x, prev: %x\n", data, guess, previousKeyByte)
+    end
+    data ⊻ guess ⊻ previousKeyByte
 end
-target(a::RoundIn, data::UInt8, keyByte::UInt8) = data ⊻ keyByte ⊻ a.phaseInput
-show(io::IO, a::RoundIn) = print(io, "Round input, for r0, that means plaintext ⊻ keybyte")   
-
-# And a dummy target
-type ConstTarget <: Target{UInt8,UInt8,UInt8}
-    constant::UInt8
-end
-target(a::ConstTarget, data::UInt8, keyByte::UInt8) = a.constant
-show(io::IO, a::ConstTarget) = print(io, "Returns a constant value")   
+show(io::IO, a::TwoRoundTarget) = print(io, "Round input, for r0, that means plaintext ⊻ keybyte")   
 
 function getTargets(params::AesIlyaAttack, phase::Int, phaseInput::Vector{UInt8})
-    # We have 16 targets, each corresponds to a key byte
-	# We have 256 phases, in each phase we generate a possible roundKey
-	# getTargets() is invoked at the beginning of each phase.
-	# XXX so how do we get the previous keybyte in the right place?
-	# XXX can our Target carry water for us?
-	# XXX maybe DataPass? 
-
-    print("--------------------\n")
-    @printf("phase: %d\n", phase)
-    print(phaseInput)
-    print("\n")
-
-	ct = ConstTarget(phase-1)
-	targetfn = RoundIn(42) # XXX HOW DO WE GET IT HERE?
-	suffix = [targetfn for i in 1:(numberOfTargets(params,phase)-1)]
-	r = vcat(ct, suffix)
-	
-	print(r)
-    print("\n")
-    @printf("fn-count: %d\n", numberOfTargets(params,phase))
-    print("--------------------\n")
-    return r
+    global previousKeyByte
+    # We know the key, it is the following, but we don't cheat, so not using it.
+    # 0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c
+    previousKeyByte = phase
+    # We can't set previous key-bytes yet, because we don't know them, do that later
+    targetfn = TwoRoundTarget()
+    return [targetfn for i in 1:(numberOfTargets(params,phase))]
 end
 
 # We attack one keybyte at a time, but in 256 ways...
-numberOfTargets(params::AesIlyaAttack, phase::Int) = 16
+numberOfTargets(params::AesIlyaAttack, phase::Int) = 15
+
+# However, we skip the first byte...
+function getTargetOffsets(params::AesIlyaAttack, phase::Int)
+    [i for i in 1:15]
+end
 
 show(io::IO, a::AesIlyaAttack) = print(io, "AES two-byte Ilya attack")
 
@@ -87,12 +80,13 @@ function printParameters(params::AesIlyaAttack)
     @printf("direction:  %s\n", string(params.direction))
 end
 
+function datafilter(data::Vector{UInt8})
+    # called once per row, to return the "data" we'll use...
+    # we return pairs of xor'd bytes to prep for above...
+    return [ data[i]⊻data[i+1] for i in 1:(length(data)-1)]
+end
+
 function getDataPass(params::AesIlyaAttack, phase::Int, phaseInput::Vector{UInt8})
-    print("--------------------\n")
-    @printf("phase: %d\n", phase)
-    print(phaseInput)
-    print("\n")
-    print("--------------------\n")
-    return Nullable(x -> x[1:16])
+    return Nullable(x -> datafilter(x))
 end
 
