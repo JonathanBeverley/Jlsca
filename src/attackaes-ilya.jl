@@ -26,8 +26,6 @@ function ilyaRankCallBack(rankData::RankData, keyOffsets::Vector{Int64})
     target = length(rankData.combinedScores[phase])
     orderedArrayOfFloats = rankData.combinedScores[phase][target]
     previousKeyByte = indmax(orderedArrayOfFloats)-1
-    global printIt
-    printIt = 4
 end
 
 type flipHW <: Leakage
@@ -41,15 +39,9 @@ function numberOfPhases(params::AesIlyaAttack)
 end
 
 # Need a new target
-printIt = 4
 type TwoRoundTarget <: Target{UInt8,UInt8,UInt8} end
 function target(a::TwoRoundTarget, data::UInt8, guess::UInt8)
     global previousKeyByte
-    global printIt
-    if (printIt>0)
-        printIt -= 1
-        @printf("data: %x, key: %x, prev: %x\n", data, guess, previousKeyByte)
-    end
     data ⊻ guess ⊻ previousKeyByte
 end
 show(io::IO, a::TwoRoundTarget) = print(io, "Round input, for r0, that means plaintext ⊻ keybyte")   
