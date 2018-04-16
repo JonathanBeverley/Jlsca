@@ -6,27 +6,28 @@
 using ..Aes
 using ..Trs
 
-export AesIlyaAttack, ilyaRankCallBack, flipHW
+export AesIlyaAttack, ilyaRankCallBack, flipHW, ProgressiveGlobalMaximization
 
 type AesIlyaAttack <: AesAttack
     mode::AesMode
     keyLength::AesKeyLength
     direction::Direction
-
     function AesIlyaAttack()
         return new(CIPHER, KL128, FORWARD)
     end
 end
 
 previousKeyByte = 0x00::UInt8
+previousIndex = 0
 
 function ilyaRankCallBack(rankData::RankData, keyOffsets::Vector{Int64})
-    global previousKeyByte
+    global previousKeyByte, previousIndex
     phase = length(rankData.combinedScores)
     target = length(rankData.combinedScores[phase])
     orderedArrayOfFloats = rankData.combinedScores[phase][target]
-    maxindex = indmax(orderedArrayOfFloats)-1
-    previousKeyByte = convert(UInt8, maxindex)
+    maxindex = indmax(orderedArrayOfFloats)
+    previousKeyByte = convert(UInt8, maxindex-1)
+    previousIndex = rankData.offsets[phase][target][1][maxindex]
 end
 
 type flipHW <: Leakage end
@@ -71,5 +72,32 @@ end
 
 function getDataPass(params::AesIlyaAttack, phase::Int, phaseInput::Vector{UInt8})
     return Nullable(x -> datafilter(x))
+end
+
+type ProgressiveGlobalMaximization <: Maximization end
+show(io::IO, a::ProgressiveGlobalMaximization) = print(io, "progressive global max")
+
+function update!(g::ProgressiveGlobalMaximization, a::RankData, phase::Int, C::AbstractArray{Float64,2}, target::Int, leakage::Int, nrConsumedRows::Int, nrConsumedCols::Int,  nrRows::Int, nrCols::Int, colOffset::Int)
+    global previousIndex
+    # C is a matrix of the correlation between guesses and samples
+    # so if we are checking 21 samples, we get a matrix[21][256]
+    (samples,guesses) = size(C)
+    r = lazyinit(a,phase,target,guesses,leakage,nrConsumedRows,nrConsumedCols,nrRows,nrCols)
+    #print("pre-C: ",C,"\n")
+    for i in 1:(previousIndex)
+        for j in 1:256
+            C[i,j] = 0.0
+        end
+    end
+    #print("post-C: ",C,"\n")
+
+    (corrvals, corrvaloffsets) = findmax(C, 1)
+
+    for (idx,val) in enumerate(corrvals)
+        if val > a.scores[phase][target][leakage][idx,r]
+            a.scores[phase][target][leakage][idx,r] = val
+            a.offsets[phase][target][leakage][idx,r] = ind2sub(size(C), corrvaloffsets[idx])[1] + colOffset-1
+        end
+    end
 end
 
