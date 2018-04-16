@@ -19,14 +19,20 @@ end
 
 previousKeyByte = 0x00::UInt8
 previousIndex = 0
+knownKey = hex2bytes("")
 
 function ilyaRankCallBack(rankData::RankData, keyOffsets::Vector{Int64})
-    global previousKeyByte, previousIndex
+    global previousKeyByte, previousIndex, knownKey
     phase = length(rankData.combinedScores)
     target = length(rankData.combinedScores[phase])
     orderedArrayOfFloats = rankData.combinedScores[phase][target]
     maxindex = indmax(orderedArrayOfFloats)
-    previousKeyByte = convert(UInt8, maxindex-1)
+    if (target <= length(knownKey))
+        previousKeyByte = knownKey[target]
+    else
+        previousKeyByte = convert(UInt8, maxindex-1)
+    end
+    @printf("Using previous key-byte: %02x\n", previousKeyByte)
     previousIndex = rankData.offsets[phase][target][1][maxindex]
 end
 
