@@ -12,8 +12,9 @@ type AesIlyaAttack <: AesAttack
     mode::AesMode
     keyLength::AesKeyLength
     direction::Direction
+    sbox::Vector{UInt8}
     function AesIlyaAttack()
-        return new(CIPHER, KL128, FORWARD)
+        return new(CIPHER, KL128, FORWARD, Aes.sbox)
     end
 end
 
@@ -30,7 +31,7 @@ function ilyaRankCallBack(rankData::RankData, keyOffsets::Vector{Int64})
     if (target <= length(knownKey))
         previousKeyByte = knownKey[target]
     else
-        previousKeyByte = convert(UInt8, maxindex-1)
+        previousKeyByte = UInt8(maxindex-1)
     end
     @printf("Using previous key-byte: %02x\n", previousKeyByte)
     previousIndex = rankData.offsets[phase][target][1][maxindex]
@@ -42,10 +43,12 @@ function leak(this::flipHW, intermediate::Union{UInt8,UInt16,UInt32,UInt128})
 end
 
 # Need a new target
-type TwoRoundTarget <: Target{UInt8,UInt8,UInt8} end
-function target(a::TwoRoundTarget, data::UInt8, guess::UInt8)
+type TwoRoundTarget <: Target{UInt16,UInt8,UInt8} end
+function target(a::TwoRoundTarget, data::UInt16, guess::UInt8)
     global previousKeyByte
-    return data ⊻ guess ⊻ previousKeyByte
+    prevData = UInt8(data>>8)
+    nowData = UInt8(data&0xff)
+    return (prevData ⊻ previousKeyByte) ⊻ (nowData ⊻ guess)
 end
 show(io::IO, a::TwoRoundTarget) = print(io, "Two-round target: (Pᵢ₋₁ ⊻ Kᵢ₋₁) ⊻ (Pᵢ ⊻ Kᵢ)")
 
@@ -73,7 +76,10 @@ function datafilter(data::Vector{UInt8})
     # called once per row, to return the "data" we'll use...
     # we return pairs of xor'd bytes to prep for above...
     # For the first round, use 0x0 as the previous datum
-    return vcat([data[1]], [ data[i-1]⊻data[i] for i in 2:(length(data))])
+    return vcat(
+            [UInt16(data[1])],
+            [UInt16(data[i-1])<<8|data[i] for i in 2:(length(data))]
+           )
 end
 
 function getDataPass(params::AesIlyaAttack, phase::Int, phaseInput::Vector{UInt8})
