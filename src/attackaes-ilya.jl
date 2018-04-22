@@ -43,25 +43,34 @@ function leak(this::flipHW, intermediate::Union{UInt8,UInt16,UInt32,UInt128})
 end
 
 # Need a new target
-type TwoRoundTarget <: Target{UInt16,UInt8,UInt8} end
+type TwoRoundTarget <: Target{UInt16,UInt8,UInt8}
+    sbox::Vector{UInt8}
+end
 function target(a::TwoRoundTarget, data::UInt16, guess::UInt8)
     global previousKeyByte
     prevData = UInt8(data>>8)
     nowData = UInt8(data&0xff)
-    return (prevData ⊻ previousKeyByte) ⊻ (nowData ⊻ guess)
+    return (
+            0x00
+            ⊻ (nowData ⊻ guess)
+            # ⊻ a.sbox[(nowData ⊻ guess)+1]
+            ⊻ (prevData ⊻ previousKeyByte)
+            # ⊻ a.sbox[(prevData ⊻ previousKeyByte)+1]
+    )
 end
 show(io::IO, a::TwoRoundTarget) = print(io, "Two-round target: (Pᵢ₋₁ ⊻ Kᵢ₋₁) ⊻ (Pᵢ ⊻ Kᵢ)")
 
 function getTargets(params::AesIlyaAttack, phase::Int, phaseInput::Vector{UInt8})
     global previousKeyByte
-    previousKeyByte = 0x00::UInt8
+    previousKeyByte = UInt8(phase-1)
 
     # We can't set previous key-bytes yet, because we don't know them, do that later
-    targetfn = TwoRoundTarget()
+    targetfn = TwoRoundTarget(params.sbox)
     return [targetfn for i in 1:(numberOfTargets(params,phase))]
 end
 
 # We attack one keybyte at a time, but in 256 ways...
+numberOfPhases(params::AesIlyaAttack) = 1
 numberOfTargets(params::AesIlyaAttack, phase::Int) = 16
 
 show(io::IO, a::AesIlyaAttack) = print(io, "AES two-byte Ilya attack")
@@ -72,13 +81,21 @@ function printParameters(params::AesIlyaAttack)
     @printf("direction:  %s\n", string(params.direction))
 end
 
+function recoverKey(params::AesIlyaAttack, phaseInputOrig::Vector{UInt8})
+    for i in 1:length(knownKey)
+        phaseInputOrig[i] = knownKey[i]
+    end
+    return phaseInputOrig
+end
+
 function datafilter(data::Vector{UInt8})
     # called once per row, to return the "data" we'll use...
     # we return pairs of xor'd bytes to prep for above...
     # For the first round, use 0x0 as the previous datum
+    # tformed = reshape(reshape(data[1:16], 4,4)', 16)
     return vcat(
             [UInt16(data[1])],
-            [UInt16(data[i-1])<<8|data[i] for i in 2:(length(data))]
+            [(UInt16(data[i-1])<<8)|data[i] for i in 2:16]
            )
 end
 
