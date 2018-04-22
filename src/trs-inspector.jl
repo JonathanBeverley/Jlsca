@@ -97,7 +97,7 @@ function readInspectorTrsHeader(filename, bitshack::Bool)
       numberOfTraces = Nullable()
       dataSpace = 0
       sampleSpace = 0
-      sampleType = UInt8
+      sampleType = Int8
       numberOfSamplesPerTrace = 0
       traceBlockPosition = 0
       lengthPosition = 0
@@ -146,13 +146,13 @@ function readInspectorTrsHeader(filename, bitshack::Bool)
             sampleType = Float32
             sampleSpace = 4
           elseif sampleCoding == CodingInt
-            sampleType = UInt32
+            sampleType = Int32
             sampleSpace = 4
           elseif sampleCoding == CodingShort
             sampleType = Int16
             sampleSpace = 2
           elseif sampleCoding == CodingByte
-            sampleType = UInt8
+            sampleType = Int8
             sampleSpace = 1
           end
         else
@@ -214,7 +214,7 @@ function readData(trs::InspectorTrace, idx)
 end
 
 # write data for a single trace from an Inspector trace set
-function writeData(trs::InspectorTrace, idx, data::Vector{UInt8})
+function writeData(trs::InspectorTrace, idx, data::Vector{Int8})
   trs.dataSpace == length(data) || throw(ErrorException(@sprintf("wrong data length %d, expecting %d", length(data), trs.dataSpace)))
   position = calcFilePositionForIdx(trs, idx)
 
