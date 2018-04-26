@@ -813,7 +813,7 @@ function sca(trs::Trace, params::DpaAttack, firstTrace::Int=1, numberOfTraces::I
         (rankData, keyOffsets) = statusData
         printScores(params, phase, rankData, keyOffsets)
         if !isnull(params.ranksCallBack)
-          get(params.ranksCallBack)(rankData, keyOffsets)
+          get(params.ranksCallBack)(params.attack, rankData, keyOffsets)
         end
       elseif status == PHASERESULT
         phaseOutput = vcat(phaseOutput, statusData)
