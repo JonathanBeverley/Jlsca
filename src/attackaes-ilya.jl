@@ -12,12 +12,13 @@ type AesIlyaAttack <: AesAttack
     mode::AesMode
     keyLength::AesKeyLength
     direction::Direction
+    xor::Bool
     sbox::Vector{UInt8}
     knownKey::Array{UInt8,1}
     previousKeyByte # untyped to allow use of `nothing`
     rhme3::Bool
     function AesIlyaAttack()
-        return new(CIPHER, KL128, FORWARD, Aes.sbox, [], 0, false)
+        return new(CIPHER, KL128, FORWARD, false, Aes.sbox, [], 0, false)
     end
 end
 
@@ -31,7 +32,6 @@ function ilyaRankCallBack(params::AesIlyaAttack, rankData::RankData, keyOffsets:
         @printf("Using known key-byte: %02x\n", params.previousKeyByte)
     else
         params.previousKeyByte = UInt8(maxindex-1)
-        @printf("Using previous key-byte: %02x\n", params.previousKeyByte)
     end
 end
 
@@ -49,8 +49,10 @@ function target(a::TwoRoundTarget, data::UInt16, guess::UInt8)
     nowData = UInt8(data&0xff)
     if a.params.previousKeyByte == nothing
         return 0xff ⊻ a.params.sbox[(nowData ⊻ guess)+1]
-    else
+    elseif a.params.xor
         return (nowData ⊻ guess) ⊻ (prevData ⊻ a.params.previousKeyByte)
+    else
+        return (nowData ⊻ guess) ⊻ (prevData)
     end
 end
 show(io::IO, a::TwoRoundTarget) = print(io, "Two-round target: (Pᵢ₋₁ ⊻ Kᵢ₋₁) ⊻ (Pᵢ ⊻ Kᵢ)")
@@ -82,7 +84,7 @@ end
 
 function recoverKey(params::AesIlyaAttack, phaseInputOrig::Vector{UInt8})
     if params.rhme3
-        result =  reshape(Aes.InvShiftRows(reshape(phaseInputOrig[1:16],(4,4))), 16)
+        result = reshape(Aes.InvShiftRows(reshape(phaseInputOrig[1:16],(4,4))), 16)
     else
         result = phaseInputOrig
     end
