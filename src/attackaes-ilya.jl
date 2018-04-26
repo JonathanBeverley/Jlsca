@@ -34,10 +34,10 @@ function ilyaRankCallBack(rankData::RankData, keyOffsets::Vector{Int64})
     maxindex = indmax(orderedArrayOfFloats)
     if (target <= length(knownKey))
         previousKeyByte = knownKey[target]
-		@printf("Using known key-byte: %02x\n", previousKeyByte)
+        @printf("Using known key-byte: %02x\n", previousKeyByte)
     else
         previousKeyByte = UInt8(maxindex-1)
-		@printf("Using previous key-byte: %02x\n", previousKeyByte)
+        @printf("Using previous key-byte: %02x\n", previousKeyByte)
     end
     previousIndex = rankData.offsets[phase][target][1][maxindex]
 end
@@ -71,8 +71,8 @@ function target(a::TwoRoundTarget, data::UInt16, guess::UInt8)
             0x00
             ⊻ (nowData ⊻ guess)
             # ⊻ a.sbox[(nowData ⊻ guess)+1]
-			⊻ (prevData ⊻ previousKeyByte)
-			#⊻ maybeSbox
+            ⊻ (prevData ⊻ previousKeyByte)
+            #⊻ maybeSbox
     ) 
 end
 show(io::IO, a::TwoRoundTarget) = print(io, "Two-round target: (Pᵢ₋₁ ⊻ Kᵢ₋₁) ⊻ (Pᵢ ⊻ Kᵢ)")
@@ -99,16 +99,16 @@ function printParameters(params::AesIlyaAttack)
 end
 
 function recoverKey(params::AesIlyaAttack, phaseInputOrig::Vector{UInt8})
-	result =  reshape(Aes.InvShiftRows(reshape(phaseInputOrig[1:16],(4,4))), 16)
-	for i in 1:min(length(result),length(knownKey))
+    result =  reshape(Aes.InvShiftRows(reshape(phaseInputOrig[1:16],(4,4))), 16)
+    for i in 1:min(length(result),length(knownKey))
         result[i] = knownKey[i]
     end
     return result
 end
 
 function rhme3Filter(data::Vector{UInt8})
-	shifted = reshape(Aes.ShiftRows(reshape(data[1:16],(4,4))), 16)
-	return twoRoundFilter(shifted)
+    shifted = reshape(Aes.ShiftRows(reshape(data[1:16],(4,4))), 16)
+    return twoRoundFilter(shifted)
 end
 
 function twoRoundFilter(data::Vector{UInt8})
@@ -116,10 +116,10 @@ function twoRoundFilter(data::Vector{UInt8})
     # we return pairs of xor'd bytes to prep for above...
     # For the first round, use 0x0 as the previous datum
     #return [(UInt16(data[3])<<8)|data[i] for i in 1:16]
-	return vcat(
-				[UInt16(data[1])],
-				[(UInt16(data[i-1])<<8)|data[i] for i in 2:16]
-			   )
+    return vcat(
+                [UInt16(data[1])],
+                [(UInt16(data[i-1])<<8)|data[i] for i in 2:16]
+               )
 end
 
 function getDataPass(params::AesIlyaAttack, phase::Int, phaseInput::Vector{UInt8})
