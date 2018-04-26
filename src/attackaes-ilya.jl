@@ -99,26 +99,16 @@ function printParameters(params::AesIlyaAttack)
 end
 
 function recoverKey(params::AesIlyaAttack, phaseInputOrig::Vector{UInt8})
-	for i in 1:min(length(phaseInputOrig),length(knownKey))
-        # phaseInputOrig[i] = knownKey[i]
+	result =  reshape(Aes.InvShiftRows(reshape(phaseInputOrig[1:16],(4,4))), 16)
+	for i in 1:min(length(result),length(knownKey))
+        result[i] = knownKey[i]
     end
-    return phaseInputOrig
+    return result
 end
 
 function rhme3Filter(data::Vector{UInt8})
 	shifted = reshape(Aes.ShiftRows(reshape(data[1:16],(4,4))), 16)
 	return twoRoundFilter(shifted)
-
-    #  1  5  9 13
-	#  2  6 10 14
-	#  3  7 11 15
-	#  4  8 12 16
-
-    #  1  6 11 16
-	#  5 10 15  4
-	#  9 14  3  8
-	# 13  2  7 12
-
 end
 
 function twoRoundFilter(data::Vector{UInt8})
