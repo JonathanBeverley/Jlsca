@@ -12,15 +12,8 @@ type SplitBinary <: Trace
   numberOfSamplesPerTrace::Int
   samplesFileDescriptor
   dataFileDescriptor
-  passes
-  dataPasses
-  postProcInstance
-  bgtask
-  tracesReturned
-  samplesPosition
-  dataPosition
-  colRange::Nullable{Range}
-
+  meta::MetaData
+  
   function SplitBinary(dataFn, samplesFn, bits::Bool = false)
     (sampleSpace, sampleType, numberOfTracesSamples) = parseFilename(samplesFn)
     (dataSpace, dataType, numberOfTracesData) = parseFilename(dataFn)
@@ -82,20 +75,21 @@ type SplitBinary <: Trace
       sampleType = UInt64
     end
 
-    new(nrtraces, dataSpace, sampleType, numberOfSamplesPerTrace, samplesFileDescriptor, dataFileDescriptor, [], [], Union, Union, 0, 0, 0,Nullable{Range}())
+    new(nrtraces, dataSpace, sampleType, numberOfSamplesPerTrace, samplesFileDescriptor, dataFileDescriptor,MetaData())
   end
 end
 
 pipe(trs::SplitBinary) = false
 
 length(trs::SplitBinary) = trs.numberOfTraces
+nrsamples(trs::SplitBinary) = trs.numberOfSamplesPerTrace
+sampletype(trs::SplitBinary) = Vector{trs.sampleType}()
+meta(trs::SplitBinary) = trs.meta
 
 function readData(trs::SplitBinary, idx)
-  if trs.dataPosition != (idx-1) * trs.dataSpace
+  if position(trs.dataFileDescriptor) != (idx-1) * trs.dataSpace
     seek(trs.dataFileDescriptor, (idx-1) * trs.dataSpace)
   end
-
-  trs.dataPosition += trs.dataSpace
 
   return read(trs.dataFileDescriptor, trs.dataSpace)
 end
@@ -103,25 +97,26 @@ end
 function writeData(trs::SplitBinary, idx, data::Vector{UInt8})
   trs.dataSpace == length(data) || throw(ErrorException(@sprintf("wrong data length %d, expecting %d", length(data), trs.dataSpace)))
 
-  if trs.dataPosition != (idx-1) * trs.dataSpace
+  if position(trs.dataFileDescriptor) != (idx-1) * trs.dataSpace
     seek(trs.dataFileDescriptor, (idx-1) * trs.dataSpace)
   end
-
-  trs.dataPosition += trs.dataSpace
 
   write(trs.dataFileDescriptor, data)
 end
 
-function readSamples(trs::SplitBinary, idx)
+readSamples(trs::SplitBinary, idx::Int) = readSamples(trs, idx, 1:trs.numberOfSamplesPerTrace)
+
+function readSamples(trs::SplitBinary, idx, r::Range)
+  issubset(r,1:trs.numberOfSamplesPerTrace) || error("requested range $r not in trs sample space $(1:trs.numberOfSamplesPerTrace)")
   bytesinsamples = trs.numberOfSamplesPerTrace * sizeof(trs.sampleType)
-  position = (idx-1) * bytesinsamples
-  if trs.samplesPosition != position
-    seek(trs.samplesFileDescriptor, position)
+  pos = (idx-1) * bytesinsamples
+  pos += (r[1]-1) * sizeof(trs.sampleType)
+
+  if position(trs.samplesFileDescriptor) != pos
+    seek(trs.samplesFileDescriptor, pos)
   end
 
-  trs.samplesPosition += bytesinsamples
-
-  samples = read(trs.samplesFileDescriptor, trs.sampleType, trs.numberOfSamplesPerTrace)
+  samples = read(trs.samplesFileDescriptor, trs.sampleType, length(r))
 
   if trs.sampleType != UInt8
     if ltoh(ENDIAN_BOM) != ENDIAN_BOM
@@ -137,13 +132,10 @@ function writeSamples(trs::SplitBinary, idx::Int, samples::Vector)
   trs.sampleType == eltype(samples) || throw(ErrorException(@sprintf("wrong samples type %s, expecting %s", eltype(samples), trs.sampleType)))
 
   bytesinsamples = trs.numberOfSamplesPerTrace * sizeof(trs.sampleType)
-  position = (idx-1) * bytesinsamples
-  if trs.samplesPosition != position
-    seek(trs.samplesFileDescriptor, position)
+  pos = (idx-1) * bytesinsamples
+  if position(trs.samplesFileDescriptor) != pos
+    seek(trs.samplesFileDescriptor, pos)
   end
-
-  trs.samplesPosition += bytesinsamples
-
 
   if trs.sampleType != UInt8
     if ltoh(ENDIAN_BOM) != ENDIAN_BOM

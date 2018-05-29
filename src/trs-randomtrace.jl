@@ -10,20 +10,19 @@ type RandomTrace <: Trace
   sampleType
   nrSamples
   numberOfTraces::Int
-  passes
-  dataPasses
-  postProcInstance
-  tracesReturned
-  colRange::Nullable{Range}
+  meta::MetaData
 
   function RandomTrace(nrTraces::Int, dataSpace::Int, sampleType::Type, nrSamples::Int) 
-    new(dataSpace, sampleType, nrSamples,nrTraces, [], [], Union,0,Nullable{Range}())
+    new(dataSpace, sampleType, nrSamples,nrTraces,MetaData())
   end
 end
 
 pipe(trs::RandomTrace) = false
 
 length(trs::RandomTrace) = trs.numberOfTraces
+nrsamples(trs::RandomTrace) = trs.nrSamples
+sampletype(trs::RandomTrace) = Vector{trs.sampleType}()
+meta(trs::RandomTrace) = trs.meta
 
 function readData(trs::RandomTrace, idx)
   return rand(UInt8,trs.dataSpace)

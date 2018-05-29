@@ -7,32 +7,29 @@ export InspectorTrace
 using Base.get
 import Base.close
 
+verbose = true
+
 # Inspector trace set implementation
 type InspectorTrace <: Trace
-  titleSpace
+  titleSpace::Int
   numberOfTraces::Nullable{Int}
-  dataSpace
-  sampleSpace
-  sampleType
-  numberOfSamplesPerTrace
-  traceBlockPosition
-  fileDescriptor
-  passes
-  dataPasses
-  postProcInstance
-  bgtask
-  tracesReturned
-  filename
-  filePosition
+  dataSpace::Int
+  sampleSpace::Int
+  sampleType::Type
+  numberOfSamplesPerTrace::Int
+  traceBlockPosition::Int
+  fileDescriptor::IOStream
+  filename::String
+  filePosition::Int
   writeable::Bool
   lengthPosition::Int
   bitshack::Bool
-  colRange::Nullable{Range}
+  meta::MetaData
 
   # to open an existing file
   function InspectorTrace(filename::String, bitshack::Bool = false)
     (titleSpace, numberOfTraces, dataSpace, sampleSpace, sampleType, numberOfSamplesPerTrace, traceBlockPosition, lengthPosition, fileDescriptor) = readInspectorTrsHeader(filename, bitshack)
-    new(titleSpace, numberOfTraces, dataSpace, sampleSpace, sampleType, numberOfSamplesPerTrace, traceBlockPosition, fileDescriptor, [], [], Union, Union, 0, filename, traceBlockPosition, false, lengthPosition, bitshack, Nullable{Range}())
+    new(titleSpace, numberOfTraces, dataSpace, sampleSpace, sampleType, numberOfSamplesPerTrace, traceBlockPosition, fileDescriptor, filename, traceBlockPosition, false, lengthPosition, bitshack, MetaData())
   end
 
   # to create a new one
@@ -44,7 +41,7 @@ type InspectorTrace <: Trace
     !isfile(filename) || throw(ErrorException(@sprintf("file %s exists!", filename)))
 
     (titleSpace, traceBlockPosition, lengthPosition, fileDescriptor) = writeInspectorTrsHeader(filename, dataSpace, sampleType, numberOfSamplesPerTrace, titleSpace)
-    new(titleSpace, Nullable(0), dataSpace, sizeof(sampleType), sampleType, numberOfSamplesPerTrace, traceBlockPosition, fileDescriptor, [], [], Union, Union, 0, filename, traceBlockPosition, true, lengthPosition, false)
+    new(titleSpace, Nullable(0), dataSpace, sizeof(sampleType), sampleType, numberOfSamplesPerTrace, traceBlockPosition, fileDescriptor, filename, traceBlockPosition, true, lengthPosition, false,MetaData())
   end
 end
 
@@ -75,11 +72,15 @@ const CodingFloat = 0x14
 
 pipe(trs::InspectorTrace) = isa(trs.fileDescriptor, Base.PipeEndpoint)
 
+
 # hack
 import Base.skip
 skip(fd::Base.PipeEndpoint, x::Integer) = read(fd, x)
 
 length(trs::InspectorTrace) = isnull(trs.numberOfTraces) ? typemax(Int) : get(trs.numberOfTraces)
+nrsamples(trs::InspectorTrace) = trs.bitshack ? div(trs.numberOfSamplesPerTrace*sizeof(trs.sampleType)*8,64) : trs.numberOfSamplesPerTrace
+sampletype(trs::InspectorTrace) = trs.bitshack ? Vector{UInt64}() : Vector{trs.sampleType}()
+meta(trs::InspectorTrace) = trs.meta
 
 # read the header of a Riscure Inspector trace set (TRS)
 function readInspectorTrsHeader(filename, bitshack::Bool)
@@ -164,6 +165,10 @@ function readInspectorTrsHeader(filename, bitshack::Bool)
       end
 
       if bitshack
+        if sampleType != UInt8
+          throw(ErrorException("For bit hack sample type must be UInt8"))
+        end 
+
         if (numberOfSamplesPerTrace * sampleSpace) % 8 != 0
           @printf("Warning: bithack enabled: ignoring trailing %d samples that are not 8 byte aligned !!!1\n", (numberOfSamplesPerTrace * sampleSpace) % 8)
         end
@@ -197,18 +202,16 @@ calcFilePositionForIdx(trs::InspectorTrace, idx::Int) = trs.traceBlockPosition +
 
 # read data for a single trace from an Inspector trace set
 function readData(trs::InspectorTrace, idx)
-  position = calcFilePositionForIdx(trs, idx)
+  pos = calcFilePositionForIdx(trs, idx)
 
-  if trs.filePosition != position
+  if position(trs.fileDescriptor) != pos
     # this is going to throw an exception when reading from stdin
-    seek(trs.fileDescriptor, position)
-    trs.filePosition = position
+    seek(trs.fileDescriptor, pos)
   end
 
   skip(trs.fileDescriptor, trs.titleSpace)
   data = read(trs.fileDescriptor, trs.dataSpace)
   length(data) == trs.dataSpace || throw(EOFError())
-  trs.filePosition += trs.dataSpace
 
   return data
 end
@@ -216,17 +219,15 @@ end
 # write data for a single trace from an Inspector trace set
 function writeData(trs::InspectorTrace, idx, data::Vector{Int8})
   trs.dataSpace == length(data) || throw(ErrorException(@sprintf("wrong data length %d, expecting %d", length(data), trs.dataSpace)))
-  position = calcFilePositionForIdx(trs, idx)
+  pos = calcFilePositionForIdx(trs, idx)
 
-  if trs.filePosition != position
+  if position(trs.fileDescriptor) != pos
     # this is going to throw an exception when reading from stdin
-    seek(trs.fileDescriptor, position)
-    trs.filePosition = position
+    seek(trs.fileDescriptor, pos)
   end
 
   skip(trs.fileDescriptor, trs.titleSpace)
   write(trs.fileDescriptor, data)
-  trs.filePosition += trs.dataSpace
 
   return data
 end
@@ -237,17 +238,15 @@ export readTitle
 Inspector specific function to read metadata (i.e. a title) from an `InspectorTrace` instance `trs` at index `idx`.
 """
 function readTitle(trs::InspectorTrace, idx)
-  position = calcFilePositionForIdx(trs, idx)
+  pos = calcFilePositionForIdx(trs, idx)
 
-  if trs.filePosition != position
+  if position(trs.fileDescriptor) != pos
     # this is going to throw an exception when reading from stdin
-    seek(trs.fileDescriptor, position)
-    trs.filePosition = position
-  end
+    seek(trs.fileDescriptor, pos)
+   end
 
   data = read(trs.fileDescriptor, trs.titleSpace)
   length(data) == trs.titleSpace || throw(EOFError())
-  trs.filePosition += trs.titleSpace
 
   return data
 end
@@ -259,39 +258,54 @@ Inspector specific function to write metadata `data` (a byte array, should be a 
 """
 function writeTitle(trs::InspectorTrace, idx, data::Vector{UInt8})
   trs.titleSpace >= length(data) || throw(ErrorException(@sprintf("wrong title length %d, expecting <= %d", length(data), trs.titleSpace)))
-  position = calcFilePositionForIdx(trs, idx)
+  pos = calcFilePositionForIdx(trs, idx)
 
-  if trs.filePosition != position
+  if position(trs.fileDescriptor) != pos
     # this is going to throw an exception when reading from stdin
-    seek(trs.fileDescriptor, position)
-    trs.filePosition = position
+    seek(trs.fileDescriptor, pos)
   end
 
   write(trs.fileDescriptor, data)
-  trs.filePosition += trs.titleSpace
 
   return data
 end
 
+function readSamples(trs::InspectorTrace, idx::Int)
+  if !trs.bitshack
+    readSamples(trs, idx, 1:trs.numberOfSamplesPerTrace)
+  else
+    readSamples(trs, idx, 1:div(trs.numberOfSamplesPerTrace * trs.sampleSpace * 8,64))
+  end
+end
+
 # read samples for a single trace from an Inspector trace set
-function readSamples(trs::InspectorTrace, idx)
+function readSamples(trs::InspectorTrace, idx::Int, r::UnitRange)
+  if trs.bitshack
+    rr = 1:div(trs.numberOfSamplesPerTrace * trs.sampleSpace * 8,64)
+    issubset(r,rr) || error("requested range $r not in trs sample space $rr")
+  else
+    issubset(r,1:trs.numberOfSamplesPerTrace) || error("requested range $r not in trs sample space $(1:trs.numberOfSamplesPerTrace)")
+  end
   pos = calcFilePositionForIdx(trs, idx)
   pos += trs.titleSpace
   pos += trs.dataSpace
-
-  if trs.filePosition != pos
-    # this is going to throw an exception when reading from stdin
-    seek(trs.fileDescriptor, pos)
-    trs.filePosition = pos
+  if trs.bitshack
+    pos += (r[1]-1) * sizeof(UInt64)
+  else
+    pos += (r[1]-1) * trs.sampleSpace
   end
 
+  if position(trs.fileDescriptor) != pos
+    # this is going to throw an exception when reading from stdin
+    seek(trs.fileDescriptor, pos)
+  end
+
+  
   if trs.bitshack
-    samples = Vector{UInt64}(div(trs.numberOfSamplesPerTrace * trs.sampleSpace, 8))
+    samples = Vector{UInt64}(length(r))
     read!(trs.fileDescriptor, samples)
-    trs.filePosition = position(trs.fileDescriptor)
   else
-    samples = read(trs.fileDescriptor, trs.sampleType, trs.numberOfSamplesPerTrace)
-    trs.filePosition += trs.numberOfSamplesPerTrace * trs.sampleSpace
+    samples = read(trs.fileDescriptor, trs.sampleType, length(r))
   end
 
   if trs.sampleType != UInt8
@@ -308,14 +322,13 @@ function writeSamples(trs::InspectorTrace, idx, samples::Vector)
   trs.numberOfSamplesPerTrace == length(samples) || throw(ErrorException(@sprintf("wrong samples length %d, expecting %d", length(samples), trs.numberOfSamplesPerTrace)))
   trs.sampleType == eltype(samples) || throw(ErrorException(@sprintf("wrong samples type %s, expecting %s", eltype(samples), trs.sampleType)))
 
-  position = calcFilePositionForIdx(trs, idx)
-  position += trs.titleSpace
-  position += trs.dataSpace
+  pos = calcFilePositionForIdx(trs, idx)
+  pos += trs.titleSpace
+  pos += trs.dataSpace
 
-  if trs.filePosition != position
+  if position(trs.fileDescriptor) != pos
     # this is going to throw an exception when reading from stdin
-    seek(trs.fileDescriptor, position)
-    trs.filePosition = position
+    seek(trs.fileDescriptor, pos)
   end
 
   if trs.sampleType != UInt8
@@ -325,7 +338,6 @@ function writeSamples(trs::InspectorTrace, idx, samples::Vector)
   end
 
   write(trs.fileDescriptor, samples)
-  trs.filePosition += trs.numberOfSamplesPerTrace * trs.sampleSpace
   trs.numberOfTraces = Nullable(max(idx, get(trs.numberOfTraces)))
 
   return samples
